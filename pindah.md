@@ -1,97 +1,151 @@
-# Panduan Pindah GoToWorship dari VPS ke cPanel A2 Hosting
+# Panduan Pindah Next.js 16 + Supabase dari VPS ke cPanel A2 Hosting
 
-Panduan ini merangkum langkah-langkah memindahkan project Next.js 16 + Supabase dari VPS ke shared hosting cPanel (A2 Hosting) dengan Node.js Selector / Phusion Passenger.
+Panduan generic untuk memindahkan project **Next.js 16** dengan **App Router**, **Server Actions**, **ISR**, dan database **Supabase** dari VPS (dengan PM2 worker) ke shared hosting **cPanel A2 Hosting** yang memiliki fitur **Setup Node.js App / Phusion Passenger**.
+
+> Ganti semua placeholder seperti `<domain.com>`, `<username>`, `<project-folder>`, dan nilai Supabase sesuai project masing-masing.
 
 ---
 
-## 1. Persyaratan Hosting
+## 1. Prasyarat Hosting
 
-Pastikan cPanel memiliki fitur berikut:
+Pastikan cPanel menyediakan:
 
-- **Setup Node.js App** (terlihat di menu Software)
-- Versi Node.js **18.17+** atau lebih baik **20.x / 22.x**
+- **Setup Node.js App** (biasanya di menu Software)
+- Node.js versi **18.17+**, lebih disarankan **20.x** atau **22.x**
 - Akses **Terminal** atau **SSH**
-- Addon Domain (kalau domain utama bukan yang akan dipakai)
+- Addon Domain (jika domain yang dipakai bukan domain utama cPanel)
 
-> Catatan: Next.js 16 butuh Node.js **>= 20.9.0**.
+> Next.js 16 membutuhkan Node.js **>= 20.9.0**.
 
 ---
 
-## 2. File Project yang Harus Ada di Repo
+## 2. Persiapan Project Sebelum Upload
 
-Project sudah disiapkan supaya kompatibel dengan cPanel:
+Project Next.js harus disiapkan supaya bisa berjalan di lingkungan cPanel/Passenger.
 
-- `server.js` — startup file untuk Passenger
-- `next.config.js` — sudah ditambahkan `workerThreads: false` dan `cpus: 1`
-- `.npmrc` — `legacy-peer-deps=true`
-- `package.json` — script `start` menjalankan `node server.js`
+### 2.1 Buat `server.js` di root project
 
-Kalau file-file ini belum ada, pastikan repo sudah di-pull dari GitHub:
+File ini menjadi entry point yang dijalankan Passenger.
 
-```bash
-https://github.com/mindtheory66-create/gotoworship.com.git
+```js
+process.env.NODE_ENV = process.env.NODE_ENV || 'production';
+
+const { createServer } = require('http');
+const next = require('next');
+
+const dev = process.env.NODE_ENV !== 'production';
+const app = next({ dev });
+const handle = app.getRequestHandler();
+
+app.prepare().then(() => {
+  const server = createServer((req, res) => handle(req, res));
+  const port = parseInt(process.env.PORT, 10) || 3000;
+
+  server.listen(port, (err) => {
+    if (err) throw err;
+    console.log(`> Ready on http://localhost:${port}`);
+  });
+});
+```
+
+### 2.2 Ubah script `start` di `package.json`
+
+```json
+{
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "node server.js"
+  }
+}
+```
+
+### 2.3 Tambahkan konfigurasi worker di `next.config.js`
+
+cPanel shared hosting membatasi jumlah proses. Batasi Next.js agar tidak spawn banyak worker saat build.
+
+```js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+    workerThreads: false,
+    cpus: 1,
+  },
+};
+
+module.exports = nextConfig;
+```
+
+### 2.4 Tambahkan `.npmrc`
+
+Jika ada konflik peer dependency, misalnya antara `eslint` dan `eslint-config-next`, buat file `.npmrc`:
+
+```ini
+legacy-peer-deps=true
 ```
 
 ---
 
 ## 3. Upload Project ke cPanel
 
-Upload seluruh file project ke folder aplikasi, misalnya:
+Upload seluruh project ke folder aplikasi, contoh:
 
 ```
-/home/cekganah/gotoworship.com/
+/home/<username>/<project-folder>/
 ```
 
-File dan folder yang wajib ada:
+File/folder yang wajib ada:
 
 ```
 .next/
 public/
 scripts/
 src/
-supabase/
-.env.local
+server.js
 next.config.js
 package.json
 package-lock.json
-server.js
+.env.local
 ```
 
 Yang **tidak perlu** di-upload:
 
-- `node_modules/` → akan di-install di server
-- `.git/` → tidak dibutuhkan untuk production
-- `deploy*.tar.gz`, log file, `.playwright-cli/`
+- `node_modules/` → akan di-install ulang di server
+- `.git/`
+- File log, cache, hasil build sementara
 
 ---
 
-## 4. Setup Environment Variables
+## 4. Buat File `.env.local`
 
-Buat file `.env.local` di root project dengan isi:
+Buat di root project di server:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://vjtpnprrcabgouvfvogp.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=isi_anon_key_disini
-SUPABASE_SERVICE_ROLE_KEY=isi_service_role_key_disini
-NEXT_PUBLIC_SITE_URL=https://gotoworship.com
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+NEXT_PUBLIC_SITE_URL=https://<domain.com>
 DEEPSEEK_API_KEY=
 ```
 
-Ganti `gotoworship.com` dengan domain yang sebenarnya digunakan.
+> Jangan commit file `.env.local` ke repository. Pastikan sudah masuk `.gitignore`.
 
 ---
 
 ## 5. Install Dependencies
 
-Masuk ke Terminal cPanel, lalu jalankan:
+Masuk ke Terminal cPanel dan jalankan:
 
 ```bash
-cd /home/cekganah/gotoworship.com
+cd /home/<username>/<project-folder>
 export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH
 npm install --legacy-peer-deps
 ```
 
-> `--legacy-peer-deps` diperlukan karena ada konflik peer dependency antara `eslint` dan `eslint-config-next`.
+> Sesuaikan path Node 22 kalau di hosting kamu berbeda. Cek dengan `find /opt -name node -type f 2>/dev/null | grep nodejs22`.
 
 ---
 
@@ -100,48 +154,45 @@ npm install --legacy-peer-deps
 ### Build normal
 
 ```bash
-cd /home/cekganah/gotoworship.com
+cd /home/<username>/<project-folder>
 export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH
 rm -rf .next
 npm run build
 ```
 
-### Build jika terjadi error memori / EAGAIN
+### Build fallback jika error memori / EAGAIN
 
-cPanel shared hosting membatasi jumlah proses. Kalau muncul error `spawn EAGAIN`, gunakan build Webpack dengan 1 worker:
+Jika muncul error `spawn ... EAGAIN`, pakai Webpack dengan batasan memori:
 
 ```bash
-cd /home/cekganah/gotoworship.com
+cd /home/<username>/<project-folder>
 export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH
 rm -rf .next
 NODE_OPTIONS='--max-old-space-size=4096' npm run build -- --webpack
 ```
 
-> Konfigurasi `workerThreads: false` dan `cpus: 1` di `next.config.js` sudah membatasi concurrency agar tidak kena batas proses CloudLinux.
-
 ---
 
-## 7. Konfigurasi Node.js App di cPanel
+## 7. Setup Node.js App di cPanel
 
 Buka **cPanel → Software → Setup Node.js App → Create Application**.
 
-Isi form dengan:
+Isi form:
 
 | Field | Nilai |
 |---|---|
-| Node.js version | `22.22.3` (atau versi 20+ yang tersedia) |
+| Node.js version | `22.x` atau `20.x` |
 | Application mode | `Production` |
-| Application root | `gotoworship.com` atau `/home/cekganah/gotoworship.com` |
-| Application URL | `gotoworship.com` |
+| Application root | `/home/<username>/<project-folder>` |
+| Application URL | `<domain.com>` |
 | Application startup file | `server.js` |
 
-Tambahkan Environment Variables yang sama dengan `.env.local`:
+Tambahkan Environment Variables yang sama dengan isi `.env.local`, minimal:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SITE_URL`
-- `DEEPSEEK_API_KEY` (bisa dikosongkan)
 
 Klik **Create**, lalu **Restart**.
 
@@ -149,16 +200,16 @@ Klik **Create**, lalu **Restart**.
 
 ## 8. Buat File `.htaccess` untuk Passenger
 
-Buka File Manager, masuk ke document root domain (biasanya):
+Masuk ke document root domain, biasanya:
 
 ```
-/home/cekganah/public_html/gotoworship.com/
+/home/<username>/public_html/<domain.com>/
 ```
 
-Buat file baru bernama `.htaccess` dengan isi:
+Buat file `.htaccess` dengan isi:
 
 ```apache
-PassengerAppRoot /home/cekganah/gotoworship.com
+PassengerAppRoot /home/<username>/<project-folder>
 PassengerBaseURI /
 PassengerAppType node
 PassengerStartupFile server.js
@@ -166,38 +217,38 @@ PassengerAppEnv production
 PassengerNodejs /opt/alt/alt-nodejs22/root/usr/bin/node
 ```
 
-Kalau document root berbeda, sesuaikan path-nya.
+Sesuaikan path `PassengerNodejs` dengan lokasi binary Node di server.
 
-Setelah itu, klik **Restart** aplikasi di Setup Node.js App.
+Setelah itu, **Restart** aplikasi di cPanel Setup Node.js App.
 
 ---
 
 ## 9. Setting DNS
 
-Arahkan A record domain ke IP cPanel:
+Arahkan A record domain ke IP shared hosting:
 
 ```
-gotoworship.com A 103.227.176.13
-www             A 103.227.176.13
+<domain.com>    A    <ip-cpanel>
+www             A    <ip-cpanel>
 ```
 
-Kalau pakai Cloudflare:
+Jika pakai Cloudflare:
 
 - Edit A record ke IP cPanel
-- Saat testing, matikan sementara Proxy Status (orange cloud) menjadi **DNS only**
+- Saat testing, ubah Proxy Status menjadi **DNS only** sementara
 
-Tunggu propagasi DNS beberapa menit sampai 24 jam.
+Tunggu propagasi DNS, bisa beberapa menit sampai 24 jam.
 
 ---
 
-## 10. Background Worker (Cron Job)
+## 10. Background Worker
 
-Di VPS, worker berjalan dengan PM2. Di cPanel shared hosting tidak bisa pakai PM2. Ganti dengan **Cron Job**.
+Di VPS, worker biasanya dijalankan dengan PM2. Di cPanel shared hosting, gunakan **Cron Job** sebagai gantinya.
 
 Buka **cPanel → Advanced → Cron Jobs**, tambahkan job:
 
 ```bash
-cd /home/cekganah/gotoworship.com && /opt/alt/alt-nodejs22/root/usr/bin/node scripts/run-queue-worker.js
+cd /home/<username>/<project-folder> && /opt/alt/alt-nodejs22/root/usr/bin/node scripts/<worker-file>.js
 ```
 
 Atur frekuensi, misalnya setiap 5 menit:
@@ -206,15 +257,17 @@ Atur frekuensi, misalnya setiap 5 menit:
 */5 * * * *
 ```
 
+Sesuaikan `<worker-file>.js` dengan nama file worker project masing-masing.
+
 ---
 
-## 11. Troubleshooting
+## 11. Troubleshooting Umum
 
 ### 403 Forbidden
 
-- Pastikan file `.htaccess` Passenger sudah ada di document root domain.
-- Pastikan aplikasi Node.js sudah di-start dan statusnya Running.
-- Pastikan domain sudah pointing ke IP cPanel.
+- Pastikan file `.htaccess` Passenger sudah ada di document root domain
+- Pastikan aplikasi Node.js sudah Running di cPanel
+- Pastikan domain sudah pointing ke IP cPanel
 
 ### `spawn EAGAIN`
 
@@ -227,7 +280,7 @@ experimental: {
 }
 ```
 
-Dan build pakai Webpack:
+Dan build dengan:
 
 ```bash
 NODE_OPTIONS='--max-old-space-size=4096' npm run build -- --webpack
@@ -235,13 +288,13 @@ NODE_OPTIONS='--max-old-space-size=4096' npm run build -- --webpack
 
 ### `ERESOLVE unable to resolve dependency tree`
 
-Pastikan `.npmrc` ada di root project dengan isi:
+Pastikan `.npmrc` sudah ada:
 
 ```ini
 legacy-peer-deps=true
 ```
 
-Atau install pakai:
+Atau install dengan:
 
 ```bash
 npm install --legacy-peer-deps
@@ -249,7 +302,7 @@ npm install --legacy-peer-deps
 
 ### `Node.js version >=20.9.0 is required`
 
-Terminal masih pakai Node 16 default. Gunakan path Node 22:
+Terminal masih memakai Node bawaan sistem. Pastikan menggunakan path Node 22:
 
 ```bash
 export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH
@@ -260,17 +313,17 @@ npm run build
 
 ## 12. Catatan Penting
 
-- **cPanel shared hosting punya batasan resource**: Entry Processes dan Number of Processes rendah. Website bisa jalan untuk traffic kecil, tapi rawan error kalau traffic tinggi.
-- **Inode usage**: Pantau penggunaan file/inode. `node_modules` dan `.next` bisa memakan banyak inode.
-- **Build lebih lambat**: Karena dibatasi 1 worker, build 1738 halaman statis bisa memakan waktu beberapa menit.
-- **Native modules**: Kalau build dilakukan di lokal lalu upload `.next`, library native seperti `sharp` bisa bermasalah. Disarankan build langsung di server.
+- **Resource shared hosting terbatas**: Entry Processes dan Number of Processes rendah. Website bisa jalan untuk traffic kecil, tapi rawan error saat traffic tinggi.
+- **Inode usage**: Pantau penggunaan file. `node_modules` dan `.next` bisa menghabiskan banyak inode.
+- **Build lebih lambat**: Karena dibatasi 1 worker, build banyak halaman statis bisa memakan waktu beberapa menit.
+- **Native modules**: Jika build dilakukan di lokal lalu `.next` di-upload, library native seperti `sharp` bisa bermasalah. Disarankan build langsung di server.
 
 ---
 
 ## Ringkasan Perintah Build
 
 ```bash
-cd /home/cekganah/gotoworship.com
+cd /home/<username>/<project-folder>
 export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH
 rm -rf .next
 npm install --legacy-peer-deps
