@@ -4,6 +4,8 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '10mb',
     },
+    workerThreads: false,
+    cpus: 1,
   },
   images: {
     formats: ['image/webp'],
