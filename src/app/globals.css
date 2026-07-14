@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 248, 250, 252;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+}
+
+@layer base {
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .gradient-text {
+    @apply text-primary-600;
+  }
+}
+
+.prose h2 {
+  @apply text-2xl font-bold mt-8 mb-4 text-slate-900;
+}
+.prose h3 {
+  @apply text-xl font-semibold mt-6 mb-3 text-slate-800;
+}
+.prose p {
+  @apply mb-4 leading-relaxed text-slate-600;
+}
+.prose ul {
+  @apply list-disc pl-6 mb-4 text-slate-600;
+}
+.prose ol {
+  @apply list-decimal pl-6 mb-4 text-slate-600;
+}
